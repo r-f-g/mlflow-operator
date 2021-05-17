@@ -1,19 +1,24 @@
 # Copyright 2021 Canonical Ltd.
 # See LICENSE file for licensing details.
 name: mlflow
+display-name: Mlflow operator
 description: |
-  TEMPLATE-TODO: fill out the charm's description
+  MLflow operator charm
 summary: |
-  TEMPLATE-TODO: fill out the charm's summary
-
-# TEMPLATE-TODO: replace with containers for your workload (delete for non-k8s)
+  MLflow operator charm
 containers:
-  httpbin:
-    resource: httpbin-image
-
-# TEMPLATE-TODO: each container defined above must specify an oci-image resource
+  server:
+    resource: server
 resources:
-  httpbin-image:
+  server:
     type: oci-image
-    description: OCI image for httpbin (kennethreitz/httpbin)
-
+    description: OCI image for MLflow
+requires:
+  object-storage:
+    interface: object-storage
+    schema: https://gist.githubusercontent.com/knkski/386af79a681326fb1c2a8cb69e5b02d2/raw/1e089582c43df711e8c08a4af2199f4a2edc43d4/object-storage.yaml
+    versions: [v1]
+  mysql:
+    interface: mysql
+  ingress:
+    interface: ingress
