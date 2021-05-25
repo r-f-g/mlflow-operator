@@ -16,7 +16,12 @@ import logging
 from typing import Optional
 
 import yaml
-from ops.charm import CharmBase, PebbleReadyEvent, RelationEvent
+from ops.charm import (
+    CharmBase,
+    PebbleReadyEvent,
+    RelationBrokenEvent,
+    RelationChangedEvent, ActionEvent
+)
 from ops.framework import StoredState
 from ops.main import main
 from ops.model import (
@@ -26,6 +31,7 @@ from ops.model import (
     RelationDataContent,
     WaitingStatus,
 )
+
 from serialized_data_interface import (
     NoCompatibleVersions,
     NoVersionsListed,
@@ -64,11 +70,11 @@ class MlflowCharm(CharmBase):
         self.framework.observe(self.on.db_upgrade_action, self._dp_upgrade_action)
         # relations
         self.framework.observe(self.on.mysql_relation_changed, self._on_mysql_relation_changed)
-        self.framework.observe(self.on.mysql_relation_broken, self._on_mysql_relation_changed)
+        self.framework.observe(self.on.mysql_relation_broken, self._on_mysql_relation_broken)
         self.framework.observe(self.on.object_storage_relation_changed,
                                self._object_storage_relation_changed)
-        self.framework.observe(self.on.object_storage_relation_departed,
-                               self._object_storage_relation_changed)
+        self.framework.observe(self.on.object_storage_relation_broken,
+                               self._object_storage_relation_broken)
         # initialise stored state
         self._stored.set_default(
             backend_store_uri=DEFAULT_BACKEND_STORE_URI,
@@ -85,45 +91,51 @@ class MlflowCharm(CharmBase):
         """Install on charm."""
         self.unit.status = ActiveStatus()
 
-    def _on_mysql_relation_changed(self, event: RelationEvent):
-        """Handle DB relation event."""
+    def _on_mysql_relation_changed(self, event: RelationChangedEvent):
+        """Handle DB relation changed event."""
         if not self.unit.is_leader():
             return
 
         mysql: Optional[RelationDataContent] = event.relation.data.get(event.unit)
-        if mysql:
-            # TODO: need to install pymysql to container or check if it's installed
-            db_uri = "mysql+pymysql://{user}:{password}@{host}:{port}/{database}".format(
+        # TODO: need to install pymysql to container or check if it's installed
+        self._stored.backend_store_uri = \
+            "mysql+pymysql://{user}:{password}@{host}:{port}/{database}".format(
                 user=mysql.get("user"), password=mysql.get("password"),
                 host=mysql.get("host"), port=mysql.get("port"), database=mysql.get("database")
             )
-        else:
-            db_uri = DEFAULT_BACKEND_STORE_URI
-
-        self._stored.backend_store_uri = db_uri
         self._on_config_changed(event)
 
-    def _object_storage_relation_changed(self, event: RelationEvent):
-        """Handle minio relation event."""
+    def _on_mysql_relation_broken(self, event: RelationChangedEvent):
+        """Handle DB relation changed event."""
+        if not self.unit.is_leader():
+            return
+
+        self._stored.backend_store_uri = DEFAULT_BACKEND_STORE_URI
+        self._on_config_changed(event)
+
+    def _object_storage_relation_changed(self, event: RelationChangedEvent):
+        """Handle minio relation changed event."""
         if not self.unit.is_leader():
             return
 
         minio_secrets = yaml.safe_load(event.relation.data.get(event.app, {}).get("data", "{}"))
-        minio_service = minio_secrets.get("service", None)
+        minio_url = f"http://{minio_secrets['service']}:{minio_secrets['port']}"
+        self._stored.minio_environment.update({
+            "MLFLOW_S3_ENDPOINT_URL": minio_url,
+            "AWS_ACCESS_KEY_ID": minio_secrets["access-key"],
+            "AWS_SECRET_ACCESS_KEY": minio_secrets["secret-key"],
+            "MLFLOW_S3_IGNORE_TLS": "false" if minio_secrets["secure"] is True else "true"
+        })
+        self._stored.artifact_root = "s3://mlflow/"
+        self._on_config_changed(event)
 
-        if minio_service:
-            minio_url = f"http://{minio_secrets['service']}:{minio_secrets['port']}"
-            self._stored.minio_environment.update({
-                "MLFLOW_S3_ENDPOINT_URL": minio_url,
-                "AWS_ACCESS_KEY_ID": minio_secrets["access-key"],
-                "AWS_SECRET_ACCESS_KEY": minio_secrets["secret-key"],
-            })
-            artifact_root = "s3://mlflow/"
-        else:
-            self._stored.minio_environment.clean()
-            artifact_root = DEFAULT_ARTIFACT_ROOT
+    def _object_storage_relation_broken(self, event: RelationBrokenEvent):
+        """Handle minio relation broken event."""
+        if not self.unit.is_leader():
+            return
 
-        self._stored.artifact_root = artifact_root
+        self._stored.minio_environment = {}
+        self._stored.artifact_root = DEFAULT_ARTIFACT_ROOT
         self._on_config_changed(event)
 
     def _mlflow_layer(self):
@@ -132,7 +144,7 @@ class MlflowCharm(CharmBase):
         port = self.config["port"]
         backend_store_uri = self._stored.backend_store_uri
         artifact_root = self._stored.artifact_root
-        environment = self._stored.minio_environment
+        environment = dict(self._stored.minio_environment)
 
         return {
             "summary": "MLflow server layer",
@@ -153,11 +165,14 @@ class MlflowCharm(CharmBase):
         }
 
     def _manage_server_layer(self):
-        """Manage MLflow server layer w/ Pebble."""
+        """Manage MLflow server layer with Pebble."""
         container = self.unit.get_container("server")
         mlflow_layer = self._mlflow_layer()
         services = container.get_plan().to_dict().get("services", {})
-        if services.get("server") != mlflow_layer["services"]["server"]:
+        actual_services = {service: {key: value for key, value in fields.items() if value}
+                           for service, fields in mlflow_layer["services"].items()}
+
+        if services != actual_services:
             self.unit.status = MaintenanceStatus("MLflow server maintenance")
             container.add_layer("mlflow-server", mlflow_layer, combine=True)
             if container.get_service("server").is_running():
@@ -167,12 +182,12 @@ class MlflowCharm(CharmBase):
             container.start("server")
 
     def _on_server_pebble_ready(self, event: PebbleReadyEvent):
-        """Define and start a workload using the Pebble API."""
+        """Start a workload using the Pebble API."""
         # TODO: install mlflow in container or check if it's installed
         self._manage_server_layer()
 
         if not event.workload.get_service("server").is_running():
-            self.unit.status = BlockedStatus("The Mlflow server is not running.")
+            self.unit.status = BlockedStatus("Mlflow server is not running.")
             event.defer()
             return
 
@@ -186,16 +201,24 @@ class MlflowCharm(CharmBase):
         })
         self.unit.status = ActiveStatus()
 
-    def _dp_upgrade_action(self, event):
+    def _dp_upgrade_action(self, event: ActionEvent):
         """Run MLflow dp upgrade."""
-        container = self.unit.get_container("server")
-        if event.params["i-really-mean-it"] is True:
+        if "i-really-mean-it" in event.params and event.params["i-really-mean-it"] is True:
+            container = self.unit.get_container("server")
             self.unit.status = MaintenanceStatus("Running MLflow db upgrade")
             logger.info("Running MLflow db upgrade")
             container.stop("server")
             # TODO: run `mlflow db upgrade`
             container.start("server")
-            self.unit.status = ActiveStatus()
+            if container.get_service("server").is_running():
+                event.set_results({"result": "MLflow database was upgrade"})
+                self.unit.status = ActiveStatus()
+            else:
+                event.fail("MLflow server does not start after a restart.")
+                self.unit.status = BlockedStatus("MLflow server is not running")
+        else:
+            event.fail("The 'i-really-mean-it' parameter must be toggled to enable actually "
+                       "performing this action.")
 
 
 if __name__ == "__main__":
