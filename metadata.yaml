@@ -16,7 +16,29 @@ resources:
 requires:
   object-storage:
     interface: object-storage
-    schema: https://gist.githubusercontent.com/knkski/386af79a681326fb1c2a8cb69e5b02d2/raw/1e089582c43df711e8c08a4af2199f4a2edc43d4/object-storage.yaml
+    schema:
+      v1:
+        provides:
+          type: object
+          properties:
+            access-key:
+              type: string
+            namespace:
+              type: ["string", "null"]
+            port:
+              type: number
+            secret-key:
+              type: string
+            secure:
+              type: boolean
+            service:
+              type: string
+          required:
+            - access-key
+            - port
+            - secret-key
+            - secure
+            - service
     versions: [v1]
   mysql:
     interface: mysql

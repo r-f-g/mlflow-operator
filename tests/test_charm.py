@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock
 
 import yaml
 from charm import MlflowCharm
-from ops.model import BlockedStatus, ActiveStatus, Container
+from ops.model import BlockedStatus, ActiveStatus, Container, WaitingStatus
 from ops.pebble import Plan, Service
 from ops.testing import Harness
 from serialized_data_interface import NoVersionsListed, NoCompatibleVersions
@@ -44,7 +44,8 @@ class TestCharm(unittest.TestCase):
         """Test install hook."""
         self.harness.charm.unit.status = BlockedStatus("test")
         self.harness.charm.on.install.emit()
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status,
+                         WaitingStatus("The Pebble plan need to be created."))
 
     def test_relation_hook_on_no_leader(self):
         """Test all relation hook on no leader unit."""
@@ -156,6 +157,18 @@ class TestCharm(unittest.TestCase):
         mock_service.is_running.return_value = False
         self.harness.charm._dp_upgrade_action(action_event)
 
+        mock_container.start.assert_not_called()
+        mock_container.stop.assert_not_called()
+        self.assertFalse(action_event.set_results.called)
+        self.assertTrue(action_event.fail.called)
+        mock_container.reset_mock()
+
+        # run with 'i-really-mean-it' parameter [service is running, restart failed]
+        action_event = MagicMock(params={"i-really-mean-it": True})
+        is_running = iter([True, False])
+        mock_service.is_running.side_effect = lambda: next(is_running)
+        self.harness.charm._dp_upgrade_action(action_event)
+
         mock_container.stop.assert_called_with("server")
         # TODO: add test after implement execution of `mlflow db upgrade`
         mock_container.start.assert_called_with("server")
@@ -208,6 +221,11 @@ class TestInitialCharm(unittest.TestCase):
         # add mysql relation
         rel_id = self.harness.add_relation("mysql", "mysql")
         self.harness.add_relation_unit(rel_id, "mysql/0")
+        self.harness.update_relation_data(rel_id, "mysql/0", {"data": ""})
+        self.check_server_container("0.0.0.0", "5000", "sqlite:///mlflow.db", "./mlruns", {})
+        self.assertEqual(self.harness.charm.unit.status, WaitingStatus("MySQL data are missing."))
+
+        # update relation data
         self.harness.update_relation_data(rel_id, "mysql/0", {
             "host": "mysql", "port": "3306", "user": "test",
             "password": "password", "database": "database"
@@ -222,7 +240,8 @@ class TestInitialCharm(unittest.TestCase):
         self.check_server_container("0.0.0.0", "5000", "sqlite:///mlflow.db", "./mlruns", {})
         self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
 
-    def test_main_minio_relation(self):
+    @mock.patch("charm.Minio")
+    def test_main_minio_relation(self, mock_minio):
         """Test initial with Minio relation."""
         self.harness.set_leader(True)
         self.harness.begin_with_initial_hooks()
@@ -231,6 +250,14 @@ class TestInitialCharm(unittest.TestCase):
         # add minio relation
         rel_id = self.harness.add_relation("object-storage", "minio")
         self.harness.add_relation_unit(rel_id, "minio/0")
+        self.harness.update_relation_data(rel_id, "minio", {"data": ""})
+        self.check_server_container("0.0.0.0", "5000", "sqlite:///mlflow.db", "./mlruns", {})
+        self.assertFalse(mock_minio.called)
+        self.assertEqual(self.harness.charm.unit.status, WaitingStatus("Minio data are missing."))
+
+        # update relation data Minio bucket does not exists
+        mock_minio.return_value = mock_mino_client = MagicMock()
+        mock_mino_client.bucket_exists.return_value = False
         data = {
             "service": "test",
             "port": 9000,
@@ -249,6 +276,21 @@ class TestInitialCharm(unittest.TestCase):
                 "MLFLOW_S3_IGNORE_TLS": "false",
             }
         )
+        mock_minio.assert_called_with("test:9000", access_key="access-key",
+                                      secret_key="secret-key", secure=True)
+        mock_mino_client.make_bucket.assert_called_with("mlflow")
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        mock_minio.reset_mock()
+        mock_mino_client.reset_mock()
+
+        # update relation data Minio bucket does exists
+        mock_mino_client.bucket_exists.return_value = True
+        self.harness.update_relation_data(
+            rel_id, "minio", {"data": yaml.dump(data), "_supported_versions": yaml.dump(["v1"])},
+        )
+        mock_minio.assert_called_with("test:9000", access_key="access-key",
+                                      secret_key="secret-key", secure=True)
+        mock_mino_client.make_bucket.assert_not_called()
         self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
 
         # remove minio relation

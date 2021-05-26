@@ -16,6 +16,7 @@ import logging
 from typing import Optional
 
 import yaml
+from minio import Minio
 from ops.charm import (
     CharmBase,
     PebbleReadyEvent,
@@ -42,6 +43,7 @@ from charms.nginx_ingress_integrator.v0.ingress import IngressRequires
 
 DEFAULT_BACKEND_STORE_URI = "sqlite:///mlflow.db"
 DEFAULT_ARTIFACT_ROOT = "./mlruns"
+MINIO_BUCKET = "mlflow"
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +89,16 @@ class MlflowCharm(CharmBase):
             "service-port": self.config["port"]
         })
 
+    @staticmethod
+    def _create_bucket(endpoint: str, access_key: str, secret_key, secure: bool):
+        """Create bucket for MLflow server."""
+        client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
+        if not client.bucket_exists(MINIO_BUCKET):
+            client.make_bucket(MINIO_BUCKET)
+
     def _on_install(self, _):
         """Install on charm."""
-        self.unit.status = ActiveStatus()
+        self.unit.status = WaitingStatus("The Pebble plan need to be created.")
 
     def _on_mysql_relation_changed(self, event: RelationChangedEvent):
         """Handle DB relation changed event."""
@@ -97,6 +106,10 @@ class MlflowCharm(CharmBase):
             return
 
         mysql: Optional[RelationDataContent] = event.relation.data.get(event.unit)
+        if "user" not in mysql:
+            self.unit.status = WaitingStatus("MySQL data are missing.")
+            return
+
         # TODO: need to install pymysql to container or check if it's installed
         self._stored.backend_store_uri = \
             "mysql+pymysql://{user}:{password}@{host}:{port}/{database}".format(
@@ -118,15 +131,21 @@ class MlflowCharm(CharmBase):
         if not self.unit.is_leader():
             return
 
-        minio_secrets = yaml.safe_load(event.relation.data.get(event.app, {}).get("data", "{}"))
-        minio_url = f"http://{minio_secrets['service']}:{minio_secrets['port']}"
+        secrets = yaml.safe_load(event.relation.data.get(event.app, {}).get("data", "{}"))
+        if "service" not in secrets:
+            self.unit.status = WaitingStatus("Minio data are missing.")
+            return
+
+        endpoint = f"{secrets['service']}:{secrets['port']}"
         self._stored.minio_environment.update({
-            "MLFLOW_S3_ENDPOINT_URL": minio_url,
-            "AWS_ACCESS_KEY_ID": minio_secrets["access-key"],
-            "AWS_SECRET_ACCESS_KEY": minio_secrets["secret-key"],
-            "MLFLOW_S3_IGNORE_TLS": "false" if minio_secrets["secure"] is True else "true"
+            "MLFLOW_S3_ENDPOINT_URL": f"http://{endpoint}",
+            "AWS_ACCESS_KEY_ID": secrets["access-key"],
+            "AWS_SECRET_ACCESS_KEY": secrets["secret-key"],
+            "MLFLOW_S3_IGNORE_TLS": "false" if secrets["secure"] is True else "true"
         })
-        self._stored.artifact_root = "s3://mlflow/"
+        self._stored.artifact_root = f"s3://{MINIO_BUCKET}/"
+        self._create_bucket(endpoint, secrets["access-key"],
+                            secrets["secret-key"], secrets["secure"])
         self._on_config_changed(event)
 
     def _object_storage_relation_broken(self, event: RelationBrokenEvent):
@@ -203,22 +222,28 @@ class MlflowCharm(CharmBase):
 
     def _dp_upgrade_action(self, event: ActionEvent):
         """Run MLflow dp upgrade."""
-        if "i-really-mean-it" in event.params and event.params["i-really-mean-it"] is True:
-            container = self.unit.get_container("server")
-            self.unit.status = MaintenanceStatus("Running MLflow db upgrade")
-            logger.info("Running MLflow db upgrade")
-            container.stop("server")
-            # TODO: run `mlflow db upgrade`
-            container.start("server")
-            if container.get_service("server").is_running():
-                event.set_results({"result": "MLflow database was upgrade"})
-                self.unit.status = ActiveStatus()
-            else:
-                event.fail("MLflow server does not start after a restart.")
-                self.unit.status = BlockedStatus("MLflow server is not running")
-        else:
+        if not event.params.get("i-really-mean-it"):
             event.fail("The 'i-really-mean-it' parameter must be toggled to enable actually "
                        "performing this action.")
+            return
+
+        container = self.unit.get_container("server")
+
+        if not container.get_service("server").is_running():
+            event.fail("MLflow server is not running.")
+            return
+
+        self.unit.status = MaintenanceStatus("Running MLflow db upgrade")
+        logger.info("Running MLflow db upgrade")
+        container.stop("server")
+        # TODO: run `mlflow db upgrade`
+        container.start("server")
+        if container.get_service("server").is_running():
+            event.set_results({"result": "MLflow database was upgrade"})
+            self.unit.status = ActiveStatus()
+        else:
+            event.fail("MLflow server does not start after a restart.")
+            self.unit.status = BlockedStatus("MLflow server is not running")
 
 
 if __name__ == "__main__":
