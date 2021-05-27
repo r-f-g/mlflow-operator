@@ -31,6 +31,7 @@ from ops.model import (
     MaintenanceStatus,
     RelationDataContent,
     WaitingStatus,
+    ModelError,
 )
 
 from serialized_data_interface import (
@@ -63,6 +64,10 @@ class MlflowCharm(CharmBase):
         except NoCompatibleVersions as error:
             self.model.unit.status = BlockedStatus(str(error))
             return
+        except ModelError:
+            # if minio relation is removed
+            #   ops.model.ModelError: b'ERROR "" is not a valid unit or application\n'
+            pass
         # install operator and prepare services
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.server_pebble_ready, self._on_server_pebble_ready)
@@ -172,11 +177,12 @@ class MlflowCharm(CharmBase):
                 "server": {
                     "override": "replace",
                     "summary": "MLflow server",
-                    "command": "mlflow server"
-                               f" --host {host}"
-                               f" --port {port}"
-                               f" --backend-store-uri {backend_store_uri}"
-                               f" --default-artifact-root {artifact_root}",
+                    "command": "/bin/sh -c \"mlflow server "
+                               f"--host {host} "
+                               f"--port {port} "
+                               f"--backend-store-uri {backend_store_uri} "
+                               f"--default-artifact-root {artifact_root} "
+                                "|| exit 2\"",
                     "startup": "enabled",
                     "environment": environment
                 }
@@ -247,4 +253,4 @@ class MlflowCharm(CharmBase):
 
 
 if __name__ == "__main__":
-    main(MlflowCharm)
+    main(MlflowCharm, use_juju_for_storage=True)
