@@ -14,8 +14,8 @@ For more information visit [MLflow Documentation][MLflow-docs]
 
 ## Usage
 
-Right now there no published version in [charmhub] and it needs to be
-manually build with `charmcraft`.
+Right now there is no published version in [charmhub] and it needs to be
+manually built with `charmcraft`.
 
     charmcraft build -v
     juju deploy ./mlflow.charm --resource server=docker.io/blueunicorn90/mlflow-operator:latest

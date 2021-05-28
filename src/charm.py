@@ -21,7 +21,8 @@ from ops.charm import (
     CharmBase,
     PebbleReadyEvent,
     RelationBrokenEvent,
-    RelationChangedEvent, ActionEvent
+    RelationChangedEvent,
+    ActionEvent,
 )
 from ops.framework import StoredState
 from ops.main import main
@@ -33,6 +34,7 @@ from ops.model import (
     WaitingStatus,
     ModelError,
 )
+from ops.pebble import TimeoutError, ConnectionError, APIError
 
 from serialized_data_interface import (
     NoCompatibleVersions,
@@ -59,6 +61,7 @@ class MlflowCharm(CharmBase):
         try:
             self.interfaces = get_interfaces(self)
         except NoVersionsListed as error:
+            # This is a transient error that will be resolved in the next run.
             self.model.unit.status = WaitingStatus(str(error))
             return
         except NoCompatibleVersions as error:
@@ -209,7 +212,12 @@ class MlflowCharm(CharmBase):
     def _on_server_pebble_ready(self, event: PebbleReadyEvent):
         """Start a workload using the Pebble API."""
         # TODO: install mlflow in container or check if it's installed
-        self._manage_server_layer()
+        try:
+            self._manage_server_layer()
+        except (TimeoutError, ConnectionError, APIError):
+            self.unit.status = BlockedStatus("Pebble API connection problem.")
+            event.defer()
+            return
 
         if not event.workload.get_service("server").is_running():
             self.unit.status = BlockedStatus("Mlflow server is not running.")
@@ -220,7 +228,12 @@ class MlflowCharm(CharmBase):
 
     def _on_config_changed(self, _):
         """Handle the config-changed event."""
-        self._manage_server_layer()
+        try:
+            self._manage_server_layer()
+        except (TimeoutError, ConnectionError, APIError):
+            self.unit.status = BlockedStatus("Pebble API connection problem.")
+            return
+
         self.ingress.update_config({
             "service-hostname": self.config["host"], "service-port": self.config["port"]
         })

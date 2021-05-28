@@ -7,9 +7,10 @@ import unittest
 from unittest import mock
 from unittest.mock import MagicMock, Mock
 
+import ops.pebble
 import yaml
 from charm import MlflowCharm
-from ops.model import BlockedStatus, ActiveStatus, Container, WaitingStatus
+from ops.model import BlockedStatus, ActiveStatus, Container, WaitingStatus, ModelError
 from ops.pebble import Plan, Service
 from ops.testing import Harness
 from serialized_data_interface import NoVersionsListed, NoCompatibleVersions
@@ -32,6 +33,13 @@ class TestCharmInit(unittest.TestCase):
             mock_get_interface.side_effect = NoCompatibleVersions("minio", "minio")
             harness.begin()
             self.assertFalse(hasattr(harness.charm, "interfaces"))
+
+            # if minio relation is removed
+            harness = Harness(MlflowCharm)
+            mock_get_interface.side_effect = ModelError("ERROR \"\" is not a valid "
+                                                        "unit or application\n")
+            harness.begin()
+            self.assertTrue(hasattr(harness.charm, "ingress"))
 
 
 class TestCharm(unittest.TestCase):
@@ -65,7 +73,8 @@ class TestCharm(unittest.TestCase):
         self.assertEqual(self.harness.charm._stored.backend_store_uri, "test")
         self.assertEqual(self.harness.charm._stored.artifact_root, "test")
 
-    def test_config_changed(self):
+    @mock.patch("charm.MlflowCharm._manage_server_layer")
+    def test_config_changed(self, mock_manage_server_layer):
         """Test handling configuration changes."""
         self.assertIn("--port 5000",
                       self.harness.charm._mlflow_layer()["services"]["server"]["command"])
@@ -73,8 +82,15 @@ class TestCharm(unittest.TestCase):
         self.assertIn("--port 5001",
                       self.harness.charm._mlflow_layer()["services"]["server"]["command"])
 
+        # problem with Pebble API
+        mock_manage_server_layer.side_effect = ops.pebble.APIError({}, code=400, status="error",
+                                                                   message="error")
+        self.harness.update_config({"port": "5002"})
+        self.assertEqual(self.harness.model.unit.status,
+                         BlockedStatus("Pebble API connection problem."))
+
     def test_manage_server_layer(self):
-        """Test managging the MLflow server with Pebble."""
+        """Test managing the MLflow server with Pebble."""
         # check the initial Pebble plan is empty
         container = self.harness.model.unit.get_container("server")
         self.assertEqual(container.get_plan().to_dict(), {})  # validate that plan is empty
@@ -120,6 +136,13 @@ class TestCharm(unittest.TestCase):
         self.harness.charm._on_server_pebble_ready(mock_event)
         self.assertEqual(self.harness.model.unit.status,
                          BlockedStatus("Mlflow server is not running."))
+
+        # problem with Pebble API
+        mock_manage_server_layer.side_effect = ops.pebble.APIError({}, code=400, status="error",
+                                                                   message="error")
+        self.harness.charm._on_server_pebble_ready(mock_event)
+        self.assertEqual(self.harness.model.unit.status,
+                         BlockedStatus("Pebble API connection problem."))
 
     def test_action_db_upgrade(self):
         """Test running MLflow database upgrade."""
