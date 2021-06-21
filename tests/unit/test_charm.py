@@ -15,7 +15,7 @@ from ops.pebble import Plan, Service
 from ops.testing import Harness
 from serialized_data_interface import NoVersionsListed, NoCompatibleVersions
 
-from tests.harness import TmpHarness
+from tests.unit.harness import TmpHarness
 
 
 class TestCharmInit(unittest.TestCase):
