@@ -1,0 +1,17 @@
+bundle: kubernetes
+applications:
+  mariadb-k8s:
+    charm: cs:~charmed-osm/mariadb-k8s-35
+    channel: stable
+    series: kubernetes
+    scale: 1
+  minio:
+    charm: cs:minio-55
+    channel: stable
+    series: kubernetes
+    scale: 1
+  mlflow:
+    charm: {{ master_charm }}
+    channel: beta
+    series: kubernetes
+    scale: 1
