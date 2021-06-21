@@ -1,16 +1,16 @@
 # Copyright 2021 Canonical Ltd.
 # See LICENSE file for licensing details.
-#
-# TEMPLATE-TODO: change this example to suit your needs.
-# If you don't need actions, you can remove the file entirely.
-# It ties in to the example _on_fortune_action handler in src/charm.py
-#
-# Learn more about actions at: https://juju.is/docs/sdk/actions
 
-fortune:
-  description: Returns a pithy phrase.
+db-upgrade:
+  description: |
+    Runs MLflow db upgrade.
+    Upgrade the schema of an MLflow tracking database to the latest supported version.
+
+    **IMPORTANT**: Schema migrations can be slow and are not guaranteed to be
+    transactional - **always take a backup of your database before running migrations**
   params:
-    fail:
-      description: "Fail with this message"
-      type: string
-      default: ""
+    i-really-mean-it:
+      type: boolean
+      description: "This must be toggled to enable actually performing this action."
+  required:
+    - i-really-mean-it
