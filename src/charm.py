@@ -167,7 +167,6 @@ class MlflowCharm(CharmBase):
 
     def _mlflow_layer(self):
         """Returns a Pebble configuration layer for Mlflow."""
-        host = self.config["host"]
         port = self.config["port"]
         backend_store_uri = self._stored.backend_store_uri
         artifact_root = self._stored.artifact_root
@@ -181,7 +180,7 @@ class MlflowCharm(CharmBase):
                     "override": "replace",
                     "summary": "MLflow server",
                     "command": "/bin/sh -c \"mlflow server "
-                               f"--host {host} "
+                               f"--host 0.0.0.0 "
                                f"--port {port} "
                                f"--backend-store-uri {backend_store_uri} "
                                f"--default-artifact-root {artifact_root} "

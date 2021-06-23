@@ -31,6 +31,26 @@ The use of deployed **mlflow** requires the following environmental variable:
     
     export MLFLOW_TRACKING_URI=http://<mlflow_ip>:<mlflow.config.port>
 
+### Usage with Ingress [Optional]
+
+The **nginx ingress integrator** can be used by a Nginx Ingress Controller in a Kubernetes 
+cluster to expose MLflow server container. This charm requires your Kubernetes cluster to have
+a Nginx Ingress Controller already deployed to it. For more information visit this
+[link][nginx-ingress-integrator].
+
+    juju deploy nginx-ingress-integrator ingress
+    juju relate ingress mlflow
+    # Add an entry to /etc/hosts
+    echo "127.0.0.1 mlflow.server" | sudo tee -a /etc/hosts
+
+Now you can visit [http://mlflow.server](http://mlflow.server).
+
+---
+**NOTE:**
+To enable a Nginx Ingress Controller on **MicroK8s**, just run `microk8s enable ingress`.
+---
+
+
 ### Usage with Minio [Optional]
 
 **Minio** is used as object storage for artifact store of **MLflow Tracking server**, where clients
@@ -150,3 +170,4 @@ operator behaviour without full deployment. Just `run_tests`:
 [MLflow-docs]: https://mlflow.org/docs/latest/index.html
 [charmhub]: https://charmhub.io/
 [artifact-stores]: https://mlflow.org/docs/latest/tracking.html#id69
+[nginx-ingress-integrator]: https://charmhub.io/nginx-ingress-integrator
