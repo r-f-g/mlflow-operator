@@ -7,6 +7,6 @@ options:
     description: MLflow server port.
     type: int
   host:
-    default: 0.0.0.0
-    description: MLflow server host.
+    default: mlflow.server
+    description: MLflow server host. Used by ingress.
     type: string
