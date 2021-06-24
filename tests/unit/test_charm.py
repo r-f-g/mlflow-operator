@@ -15,7 +15,7 @@ from ops.pebble import Plan, Service
 from ops.testing import Harness
 from serialized_data_interface import NoVersionsListed, NoCompatibleVersions
 
-from tests.harness import TmpHarness
+from tests.unit.harness import TmpHarness
 
 
 class TestCharmInit(unittest.TestCase):
@@ -129,7 +129,7 @@ class TestCharm(unittest.TestCase):
 
         # service server is running
         self.harness.charm._on_server_pebble_ready(mock_event)
-        self.assertEqual(self.harness.model.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.model.unit.status, ActiveStatus("MLflow server is ready"))
 
         # service server is not running
         mock_service.is_running.return_value = False
@@ -160,7 +160,7 @@ class TestCharm(unittest.TestCase):
 
         self.assertFalse(action_event.set_results.called)
         self.assertTrue(action_event.fail.called)
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
         mock_container.reset_mock()
 
         # run with 'i-really-mean-it' parameter [service is running]
@@ -172,7 +172,7 @@ class TestCharm(unittest.TestCase):
         mock_container.start.assert_called_with("server")
         self.assertTrue(action_event.set_results.called)
         self.assertFalse(action_event.fail.called)
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
         mock_container.reset_mock()
 
         # run with 'i-really-mean-it' parameter [service is not running]
@@ -233,13 +233,13 @@ class TestInitialCharm(unittest.TestCase):
         self.harness.set_leader(True)
         self.harness.begin_with_initial_hooks()
         self.check_server_container("0.0.0.0", "5000", "sqlite:///mlflow.db", "./mlruns", {})
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
 
     def test_main_mysql_relation(self):
         """Test initial with MySQL relation."""
         self.harness.set_leader(True)
         self.harness.begin_with_initial_hooks()
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
 
         # add mysql relation
         rel_id = self.harness.add_relation("mysql", "mysql")
@@ -256,19 +256,19 @@ class TestInitialCharm(unittest.TestCase):
         self.check_server_container(
             "0.0.0.0", "5000", "mysql+pymysql://test:password@mysql:3306/database", "./mlruns", {}
         )
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
 
         # remove mysql relation
         self.harness.remove_relation("mysql", "mysql")
         self.check_server_container("0.0.0.0", "5000", "sqlite:///mlflow.db", "./mlruns", {})
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
 
     @mock.patch("charm.Minio")
     def test_main_minio_relation(self, mock_minio):
         """Test initial with Minio relation."""
         self.harness.set_leader(True)
         self.harness.begin_with_initial_hooks()
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
 
         # add minio relation
         rel_id = self.harness.add_relation("object-storage", "minio")
@@ -302,7 +302,7 @@ class TestInitialCharm(unittest.TestCase):
         mock_minio.assert_called_with("test:9000", access_key="access-key",
                                       secret_key="secret-key", secure=True)
         mock_mino_client.make_bucket.assert_called_with("mlflow")
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
         mock_minio.reset_mock()
         mock_mino_client.reset_mock()
 
@@ -314,9 +314,9 @@ class TestInitialCharm(unittest.TestCase):
         mock_minio.assert_called_with("test:9000", access_key="access-key",
                                       secret_key="secret-key", secure=True)
         mock_mino_client.make_bucket.assert_not_called()
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))
 
         # remove minio relation
         self.harness.remove_relation("object-storage", "minio")
         self.check_server_container("0.0.0.0", "5000", "sqlite:///mlflow.db", "./mlruns", {})
-        self.assertEqual(self.harness.charm.unit.status, ActiveStatus())
+        self.assertEqual(self.harness.charm.unit.status, ActiveStatus("MLflow server is ready"))

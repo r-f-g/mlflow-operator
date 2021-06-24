@@ -96,6 +96,7 @@ class MlflowCharm(CharmBase):
             "service-name": self.app.name,
             "service-port": self.config["port"]
         })
+        self.unit.status = ActiveStatus("MLflow server is ready")
 
     @staticmethod
     def _create_bucket(endpoint: str, access_key: str, secret_key, secure: bool):
@@ -223,7 +224,7 @@ class MlflowCharm(CharmBase):
             event.defer()
             return
 
-        self.unit.status = ActiveStatus()
+        self.unit.status = ActiveStatus("MLflow server is ready")
 
     def _on_config_changed(self, _):
         """Handle the config-changed event."""
@@ -236,7 +237,7 @@ class MlflowCharm(CharmBase):
         self.ingress.update_config({
             "service-hostname": self.config["host"], "service-port": self.config["port"]
         })
-        self.unit.status = ActiveStatus()
+        self.unit.status = ActiveStatus("MLflow server is ready")
 
     def _dp_upgrade_action(self, event: ActionEvent):
         """Run MLflow dp upgrade."""
@@ -258,7 +259,7 @@ class MlflowCharm(CharmBase):
         container.start("server")
         if container.get_service("server").is_running():
             event.set_results({"result": "MLflow database was upgrade"})
-            self.unit.status = ActiveStatus()
+            self.unit.status = ActiveStatus("MLflow server is ready")
         else:
             event.fail("MLflow server does not start after a restart.")
             self.unit.status = BlockedStatus("MLflow server is not running")
