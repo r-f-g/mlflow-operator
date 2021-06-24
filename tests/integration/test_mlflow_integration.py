@@ -22,7 +22,8 @@ def _get_ip(text):
 
 def _run_test_train():
     """Run test train."""
-    with mlflow.start_run() as run:
+    experiment_id = mlflow.create_experiment(f"experiment-{random.randint(0, 1000):04d}")
+    with mlflow.start_run(experiment_id=experiment_id) as run:
         mlflow.log_params({"param1": 1, "param2": 2})
         mlflow.log_metric("score", 0.8)
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -30,7 +31,7 @@ def _run_test_train():
             with open(local_artifact_path, "w") as file:
                 file.write(str(random.randint(0, 10)))
 
-            mlflow.log_artifact(local_artifact_path, artifact_path="test")
+            mlflow.log_artifact(local_artifact_path)
 
         return run.info.run_id
 
@@ -128,12 +129,13 @@ async def test_add_minio_relations(ops_test):
     os.environ["AWS_SECRET_ACCESS_KEY"] = "minio1234"
     os.environ["MLFLOW_S3_IGNORE_TLS"] = "true"
 
-    await _check_mlflow_server(ops_test.model)
+    run = await _check_mlflow_server(ops_test.model)
 
     client = Minio(f"{minio_ip}:9000", access_key="minio", secret_key="minio1234", secure=False)
     assert client.bucket_exists("mlflow")
-    # TODO: add check if run.info.artifact_uri exists in Minio, after fix
-    #  https://github.com/r-f-g/mlflow-operator/issues/3
+    prefix = run.info.artifact_uri.replace("s3://mlflow/", "")
+    objects = [obj.object_name for obj in client.list_objects("mlflow", prefix, recursive=True)]
+    assert f"{prefix}/test" in objects
 
 
 async def test_remove_minio_relations(ops_test):
