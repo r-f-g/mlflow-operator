@@ -46,8 +46,8 @@ a Nginx Ingress Controller already deployed to it. For more information visit th
 Now you can visit [http://mlflow.server](http://mlflow.server).
 
 ---
-**NOTE:**
-To enable a Nginx Ingress Controller on **MicroK8s**, just run `microk8s enable ingress`.
+**NOTE:** To enable a Nginx Ingress Controller on **MicroK8s**, just run `microk8s enable ingress`.
+
 ---
 
 
@@ -71,8 +71,8 @@ The use of deployed **mlflow** requires the following environmental variables:
 More information about artifact stores can be found [here][artifact-stores].
 
 ---
-**NOTE:**
-By default, the file storage is used inside the sidecar container.
+**NOTE:** By default, the file storage is used inside the sidecar container.
+
 ---
 
 ### Usage with MySQL [Optional]
@@ -84,8 +84,8 @@ metrics, and tags for each run.
     juju relate mariadb-k8s mlflow
 
 ---
-**NOTE:**
-By default, the **sqlite** database is used inside the sidecar container.
+**NOTE:** By default, the **sqlite** database is used inside the sidecar container.
+
 ---
 
 ### Usage example
@@ -163,7 +163,7 @@ operator behaviour without full deployment. Just `run_tests`:
 * [ ] MLflow Models
    * [ ] create template for MLModels (using kubernetes as backend)
    * [ ] create worker to deploy models (e.g. execute `mlflow server`)
-* [ ] functional tests
+* [x] integration tests
 
 
 ---
