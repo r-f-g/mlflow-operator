@@ -152,6 +152,7 @@ operator behaviour without full deployment. Just `run_tests`:
 
 * [x] MLflow Tracking Server
   * [x] using local file system or Minio (via relation)
+  * [ ] add PVC storage for local file system
   * [ ] make a configurable Minio bucket name
 * [x] MLflow Model Registry
   * [x] using local database or MySQL (via relation)
